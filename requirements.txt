@@ -1,0 +1,27 @@
+# ============================================================
+# Bowling Pin Detection & Scoring — Dependencies
+# ============================================================
+# Core ML / Detection
+ultralytics>=8.3.0          # YOLO11 / YOLOv8 models
+torch>=2.1.0                # PyTorch backend
+torchvision>=0.16.0         # Vision utilities
+
+# Computer Vision
+opencv-python>=4.8.0        # Video I/O, image processing
+numpy>=1.24.0               # Numerical operations
+Pillow>=10.0.0              # Image manipulation
+
+# Tracking & Annotation
+supervision>=0.25.0         # Roboflow's tracking / annotation toolkit
+lap>=0.4.0                  # ByteTrack linear assignment dependency
+
+# Dataset Management
+roboflow>=1.1.0             # Download datasets from Roboflow Universe
+
+# Utilities
+tqdm>=4.65.0                # Progress bars
+matplotlib>=3.7.0           # Plotting & visualization
+PyYAML>=6.0                 # YAML config parsing
+
+# Testing
+pytest>=7.4.0               # Unit test framework
