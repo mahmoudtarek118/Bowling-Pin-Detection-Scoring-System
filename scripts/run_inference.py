@@ -89,8 +89,6 @@ def run_analysis(
     detector.load_model()
 
     classifier = PinClassifier(
-        use_model_class=True,
-        use_aspect_ratio=True,
         use_temporal_smoothing=True,
     )
 
@@ -110,20 +108,35 @@ def run_analysis(
         if not ret:
             break
 
-        # 1. Detect pins
-        detections = detector.detect(frame)
+        # 1. Detect ALL objects (pins, balls, sweep boards)
+        all_detections = detector.detect(frame)
 
-        # 2. Track pins (assign persistent IDs)
-        track_ids = tracker.update(detections)
+        # 2. Filter: separate pins from non-pin objects
+        filtered = classifier.filter_detections(all_detections)
+        pin_detections = filtered["pins"]
+        has_sweep = len(filtered["sweep"]) > 0
 
-        # 3. Classify pin states (standing / fallen)
-        pin_states = classifier.classify_with_tracking(detections, track_ids)
+        # 3. Track pins only (assign persistent IDs)
+        track_ids = tracker.update(pin_detections)
 
-        # 4. Count pins
+        # 4. Classify pin states
+        pin_states = classifier.classify_with_tracking(pin_detections, track_ids)
+
+        # 5. Count pins
         pin_counts = classifier.get_pin_counts(pin_states)
 
-        # 5. Detect throw events and update score
-        throw_info = throw_detector.update(pin_counts.get("standing", 0))
+        # 6. Freeze pin counts while sweep board is active to prevent false drops
+        if has_sweep:
+            standing_count = throw_detector.prev_standing
+            # Update HUD so it doesn't show 0 pins during sweep
+            pin_counts["standing"] = standing_count
+            pin_counts["fallen"] = config.TOTAL_PINS - standing_count
+            pin_counts["total"] = standing_count
+        else:
+            standing_count = pin_counts.get("standing", 0)
+
+        # 7. Detect throw events and update score
+        throw_info = throw_detector.update(standing_count)
         if throw_info["throw_detected"]:
             result = score_calc.add_throw(throw_info["pins_knocked"])
             logger.info(
@@ -136,7 +149,7 @@ def run_analysis(
         if throw_info["reset_detected"]:
             logger.info(f"Frame {frame_idx}: Pin reset detected")
 
-        # 6. Annotate frame
+        # 8. Annotate frame (pass all detections for ball/sweep visualization)
         annotated = annotator.annotate_frame(
             frame=frame,
             pin_states=pin_states,
@@ -145,6 +158,7 @@ def run_analysis(
             score_calculator=score_calc,
             throw_info=throw_info,
             fps=props["fps"],
+            extra_detections=filtered["balls"] + filtered["sweep"],
         )
 
         # 7. Write annotated frame

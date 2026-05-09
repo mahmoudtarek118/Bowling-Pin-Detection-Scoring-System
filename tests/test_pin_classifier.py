@@ -1,7 +1,9 @@
 """
 Tests for Pin Classifier
 =========================
-Tests for aspect ratio heuristics and classification logic.
+Tests for the 3-class model classification logic.
+With the new model, every "bowling-pins" detection is STANDING.
+Non-pin objects (bowling-ball, sweep board) are filtered out.
 """
 
 import sys
@@ -11,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 from src.detector import Detection
-from src.pin_classifier import PinClassifier, STANDING, FALLEN, UNKNOWN
+from src.pin_classifier import PinClassifier, STANDING, FALLEN
 import config
 
 
@@ -19,73 +21,117 @@ class TestPinClassifier:
     """Test pin state classification logic."""
 
     def setup_method(self):
-        self.classifier = PinClassifier(
-            use_model_class=True,
-            use_aspect_ratio=True,
-            use_temporal_smoothing=False,  # Disable for unit tests
-        )
+        self.classifier = PinClassifier(use_temporal_smoothing=False)
 
-    def _make_detection(self, bbox, class_name="pin", confidence=0.9):
-        """Helper to create a Detection with given bbox and class."""
-        class_id = 0 if "standing" in class_name else (1 if "fallen" in class_name else 0)
+    def _make_pin(self, bbox=(10, 10, 30, 80), confidence=0.9):
+        """Create a bowling-pins detection."""
         return Detection(
             bbox=bbox, confidence=confidence,
-            class_id=class_id, class_name=class_name,
+            class_id=config.PIN_CLASS, class_name="bowling-pins",
         )
 
-    def test_standing_from_model_class(self):
-        """Model says standing → classified as standing."""
-        det = self._make_detection((10, 10, 30, 80), "standing_pin", 0.95)
+    def _make_ball(self, bbox=(100, 100, 140, 140), confidence=0.85):
+        """Create a bowling-ball detection."""
+        return Detection(
+            bbox=bbox, confidence=confidence,
+            class_id=config.BALL_CLASS, class_name="bowling-ball",
+        )
+
+    def _make_sweep(self, bbox=(0, 200, 640, 280), confidence=0.75):
+        """Create a sweep board detection."""
+        return Detection(
+            bbox=bbox, confidence=confidence,
+            class_id=config.SWEEP_CLASS, class_name="sweep board",
+        )
+
+    def test_pin_classified_as_standing(self):
+        """Every bowling-pins detection should be classified as STANDING."""
+        det = self._make_pin()
         states = self.classifier.classify([det])
+        assert len(states) == 1
         assert states[0].state == STANDING
 
-    def test_fallen_from_model_class(self):
-        """Model says fallen → classified as fallen."""
-        det = self._make_detection((10, 10, 80, 30), "fallen_pin", 0.90)
-        states = self.classifier.classify([det])
-        assert states[0].state == FALLEN
-
-    def test_standing_from_aspect_ratio(self):
-        """Tall narrow bbox → standing (when model gives generic class)."""
-        # height=80, width=20 → aspect ratio = 4.0
-        det = self._make_detection((100, 100, 120, 180), "pin", 0.85)
-        classifier = PinClassifier(use_model_class=True, use_aspect_ratio=True)
-        states = classifier.classify([det])
+    def test_ball_filtered_out(self):
+        """Bowling ball detections should NOT appear in pin states."""
+        detections = [self._make_pin(), self._make_ball()]
+        states = self.classifier.classify(detections)
+        assert len(states) == 1  # Only the pin, not the ball
         assert states[0].state == STANDING
 
-    def test_fallen_from_aspect_ratio(self):
-        """Wide short bbox → fallen (when model gives generic class)."""
-        # height=15, width=60 → aspect ratio = 0.25
-        det = self._make_detection((100, 100, 160, 115), "pin", 0.85)
-        classifier = PinClassifier(use_model_class=True, use_aspect_ratio=True)
-        states = classifier.classify([det])
-        assert states[0].state == FALLEN
+    def test_sweep_filtered_out(self):
+        """Sweep board detections should NOT appear in pin states."""
+        detections = [self._make_pin(), self._make_sweep()]
+        states = self.classifier.classify(detections)
+        assert len(states) == 1
 
-    def test_multiple_detections(self):
-        """Test classification of multiple pins at once."""
+    def test_multiple_pins(self):
+        """Test classification of multiple standing pins."""
         detections = [
-            self._make_detection((10, 10, 30, 80), "pin"),   # AR=3.5 → standing
-            self._make_detection((50, 50, 120, 70), "pin"),   # AR=0.29 → fallen
-            self._make_detection((150, 10, 170, 90), "pin"),  # AR=4.0 → standing
+            self._make_pin((10, 10, 30, 80)),
+            self._make_pin((50, 10, 70, 80)),
+            self._make_pin((90, 10, 110, 80)),
         ]
         states = self.classifier.classify(detections)
         assert len(states) == 3
-        assert states[0].state == STANDING
-        assert states[1].state == FALLEN
-        assert states[2].state == STANDING
+        assert all(ps.state == STANDING for ps in states)
 
-    def test_pin_counts(self):
-        """Test pin counting from classified states."""
+    def test_mixed_detections(self):
+        """Test filtering with a mix of pins, balls, and sweep boards."""
         detections = [
-            self._make_detection((10, 10, 30, 80), "pin"),   # AR=3.5 → standing
-            self._make_detection((50, 50, 120, 70), "pin"),   # AR=0.29 → fallen
-            self._make_detection((150, 10, 170, 90), "pin"),  # AR=4.0 → standing
+            self._make_pin((10, 10, 30, 80)),
+            self._make_ball(),
+            self._make_pin((50, 10, 70, 80)),
+            self._make_sweep(),
+            self._make_pin((90, 10, 110, 80)),
         ]
         states = self.classifier.classify(detections)
+        assert len(states) == 3  # 3 pins only
+        assert all(ps.state == STANDING for ps in states)
+
+    def test_pin_counts_full_rack(self):
+        """10 pins detected = 10 standing, 0 fallen."""
+        detections = [self._make_pin() for _ in range(10)]
+        states = self.classifier.classify(detections)
         counts = self.classifier.get_pin_counts(states)
-        assert counts["standing"] == 2
-        assert counts["fallen"] == 1
+        assert counts["standing"] == 10
+        assert counts["fallen"] == 0
+        assert counts["total"] == 10
+
+    def test_pin_counts_partial(self):
+        """3 pins detected = 3 standing, 7 fallen."""
+        detections = [self._make_pin() for _ in range(3)]
+        states = self.classifier.classify(detections)
+        counts = self.classifier.get_pin_counts(states)
+        assert counts["standing"] == 3
+        assert counts["fallen"] == 7
         assert counts["total"] == 3
+
+    def test_pin_counts_none_detected(self):
+        """0 pins detected = 0 standing, 10 fallen (strike!)."""
+        states = self.classifier.classify([])
+        counts = self.classifier.get_pin_counts(states)
+        assert counts["standing"] == 0
+        assert counts["fallen"] == 10
+
+    def test_filter_detections(self):
+        """Test the filter_detections helper method."""
+        detections = [
+            self._make_pin(),
+            self._make_ball(),
+            self._make_sweep(),
+            self._make_pin(),
+        ]
+        filtered = self.classifier.filter_detections(detections)
+        assert len(filtered["pins"]) == 2
+        assert len(filtered["balls"]) == 1
+        assert len(filtered["sweep"]) == 1
+
+    def test_has_sweep_board(self):
+        """Test sweep board detection helper."""
+        detections_with_sweep = [self._make_pin(), self._make_sweep()]
+        detections_without_sweep = [self._make_pin(), self._make_ball()]
+        assert self.classifier.has_sweep_board(detections_with_sweep)
+        assert not self.classifier.has_sweep_board(detections_without_sweep)
 
     def test_empty_detections(self):
         """No detections → empty result."""
@@ -94,64 +140,10 @@ class TestPinClassifier:
 
     def test_reset(self):
         """Test classifier reset clears temporal state."""
-        self.classifier._confirmed_states[1] = STANDING
+        self.classifier._count_history.append(5)
         self.classifier.reset()
-        assert len(self.classifier._confirmed_states) == 0
+        assert len(self.classifier._count_history) == 0
         assert len(self.classifier._state_history) == 0
-
-
-class TestTemporalSmoothing:
-    """Test temporal smoothing with tracking."""
-
-    def setup_method(self):
-        self.classifier = PinClassifier(
-            use_model_class=True,
-            use_aspect_ratio=True,
-            use_temporal_smoothing=True,
-            stability_frames=3,
-        )
-
-    def _make_standing_detection(self):
-        """Create a pin detection with standing aspect ratio (tall & narrow)."""
-        return Detection(
-            bbox=(10, 10, 30, 80), confidence=0.9,
-            class_id=0, class_name="pin",
-        )
-
-    def _make_fallen_detection(self):
-        """Create a pin detection with fallen aspect ratio (wide & short)."""
-        return Detection(
-            bbox=(10, 10, 80, 25), confidence=0.9,
-            class_id=0, class_name="pin",
-        )
-
-    def test_state_persists_during_flicker(self):
-        """State doesn't change from a single-frame flicker."""
-        det_standing = self._make_standing_detection()
-        det_fallen = self._make_fallen_detection()
-
-        # Establish standing state
-        self.classifier.classify_with_tracking([det_standing], [1])
-        self.classifier.classify_with_tracking([det_standing], [1])
-
-        # Single flicker to fallen
-        states = self.classifier.classify_with_tracking([det_fallen], [1])
-        # Should still be standing (not enough consecutive fallen frames)
-        assert states[0].state == STANDING
-
-    def test_state_changes_after_stability(self):
-        """State changes after sufficient consecutive frames."""
-        det_standing = self._make_standing_detection()
-        det_fallen = self._make_fallen_detection()
-
-        # Establish standing
-        self.classifier.classify_with_tracking([det_standing], [1])
-
-        # Consistent fallen for stability_frames
-        for _ in range(3):
-            states = self.classifier.classify_with_tracking([det_fallen], [1])
-
-        assert states[0].state == FALLEN
 
 
 if __name__ == "__main__":

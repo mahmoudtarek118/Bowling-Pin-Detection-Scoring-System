@@ -26,7 +26,7 @@ class Detection:
     Attributes:
         bbox: Bounding box as (x1, y1, x2, y2) in pixel coordinates.
         confidence: Detection confidence score [0, 1].
-        class_id: Class index (0=pin for 1-class model).
+        class_id: Class index (0=bowling-ball, 1=bowling-pins, 2=sweep board).
         class_name: Human-readable class name.
     """
     bbox: Tuple[int, int, int, int]

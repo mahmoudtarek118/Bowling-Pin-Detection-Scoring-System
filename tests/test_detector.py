@@ -21,29 +21,29 @@ class TestDetection:
 
     def test_properties(self):
         det = Detection(bbox=(10, 20, 50, 100), confidence=0.95,
-                        class_id=0, class_name="pin")
+                        class_id=1, class_name="bowling-pins")
         assert det.width == 40
         assert det.height == 80
         assert det.center == (30.0, 60.0)
         assert det.area == 3200
         assert det.aspect_ratio == 2.0  # 80/40
 
-    def test_standing_aspect_ratio(self):
+    def test_standing_pin_aspect_ratio(self):
         """Standing pin should have high aspect ratio (tall & narrow)."""
         det = Detection(bbox=(0, 0, 20, 80), confidence=0.9,
-                        class_id=0, class_name="pin")
+                        class_id=1, class_name="bowling-pins")
         assert det.aspect_ratio == 4.0  # 80/20
 
-    def test_fallen_aspect_ratio(self):
-        """Fallen pin should have low aspect ratio (wide & short)."""
-        det = Detection(bbox=(0, 0, 80, 20), confidence=0.9,
-                        class_id=0, class_name="pin")
-        assert det.aspect_ratio == 0.25  # 20/80
+    def test_bowling_ball(self):
+        """Bowling ball should have aspect ratio close to 1.0."""
+        det = Detection(bbox=(0, 0, 40, 40), confidence=0.9,
+                        class_id=0, class_name="bowling-ball")
+        assert det.aspect_ratio == 1.0  # 40/40
 
     def test_zero_width_protection(self):
         """Aspect ratio shouldn't crash on zero-width bbox."""
         det = Detection(bbox=(10, 10, 10, 50), confidence=0.5,
-                        class_id=0, class_name="pin")
+                        class_id=1, class_name="bowling-pins")
         # Width is 0, but max(1, width) protects against division by zero
         assert det.aspect_ratio == 40.0  # 40/1
 
@@ -74,7 +74,9 @@ class TestPinDetector:
     def test_class_names(self):
         """Test default class names from config."""
         detector = PinDetector()
-        assert "pin" in detector.class_names
+        assert "bowling-ball" in detector.class_names
+        assert "bowling-pins" in detector.class_names
+        assert "sweep board" in detector.class_names
 
 
 if __name__ == "__main__":

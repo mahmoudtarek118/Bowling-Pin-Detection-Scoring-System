@@ -201,15 +201,15 @@ class BowlingScoreCalculator:
                 cumulative += frame.score
                 frame.cumulative_score = cumulative
 
-    def get_total_score(self) -> Optional[int]:
-        """Get the current total score. None if game is incomplete."""
-        if not self.frames:
-            return 0
-        last_scored = None
+    def get_total_score(self) -> int:
+        """Get the current total score, including base points for pending frames."""
+        score = 0
         for f in self.frames:
             if f.cumulative_score is not None:
-                last_scored = f.cumulative_score
-        return last_scored or 0
+                score = f.cumulative_score
+            else:
+                score += sum(f.throws)
+        return score
 
     def get_frame_scores(self) -> List[Dict]:
         """Get detailed score breakdown for all frames."""

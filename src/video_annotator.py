@@ -13,8 +13,9 @@ from typing import List, Dict, Optional, Tuple
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config
-from src.pin_classifier import PinState, STANDING, FALLEN, UNKNOWN
+from src.pin_classifier import PinState, STANDING
 from src.score_calculator import BowlingScoreCalculator
+from src.detector import Detection
 from src.utils import get_logger, draw_text_with_background
 
 logger = get_logger(__name__)
@@ -35,6 +36,7 @@ class VideoAnnotator:
         score_calculator: Optional[BowlingScoreCalculator] = None,
         throw_info: Optional[Dict] = None,
         fps: float = 30.0,
+        extra_detections: Optional[List[Detection]] = None,
     ) -> np.ndarray:
         """Draw all annotations on a single frame.
 
@@ -45,47 +47,46 @@ class VideoAnnotator:
             pin_counts: Dict with standing/fallen/total counts.
             score_calculator: Score calculator for displaying scorecard.
             throw_info: Dict from ThrowDetector with throw event info.
+            fps: Video FPS for time display.
+            extra_detections: Non-pin detections (balls, sweep boards) to draw.
 
         Returns:
             Annotated frame.
         """
         annotated = frame.copy()
 
-        # 1. Draw bounding boxes and labels
+        # 1. Draw bounding boxes for standing pins
         annotated = self._draw_detections(annotated, pin_states)
 
-        # 2. Draw HUD panel
+        # 2. Draw extra detections (bowling ball, sweep board)
+        if extra_detections:
+            annotated = self._draw_extra_detections(annotated, extra_detections)
+
+        # 3. Draw HUD panel
         annotated = self._draw_hud(
             annotated, frame_number, pin_counts, score_calculator, throw_info, fps
         )
 
-        # 3. Draw mini pin layout
+        # 4. Draw mini pin layout
         if pin_counts:
-            annotated = self._draw_pin_layout(annotated, pin_states)
+            annotated = self._draw_pin_layout(annotated, pin_counts)
 
         return annotated
 
     def _draw_detections(self, frame: np.ndarray,
                          pin_states: List[PinState]) -> np.ndarray:
-        """Draw bounding boxes and labels for each detected pin."""
+        """Draw bounding boxes and labels for each detected standing pin."""
         for ps in pin_states:
             det = ps.detection
             x1, y1, x2, y2 = det.bbox
-
-            # Choose color based on state
-            if ps.state == STANDING:
-                color = config.COLOR_STANDING
-            elif ps.state == FALLEN:
-                color = config.COLOR_FALLEN
-            else:
-                color = config.COLOR_UNKNOWN
+            color = config.COLOR_STANDING
 
             # Draw bounding box
             cv2.rectangle(frame, (x1, y1), (x2, y2), color,
                           config.BBOX_THICKNESS)
 
             # Label text
-            label = f"{ps.state} {det.confidence:.0%}"
+            label = f"pin {det.confidence:.0%}"
             if ps.track_id is not None:
                 label = f"#{ps.track_id} {label}"
 
@@ -97,6 +98,37 @@ class VideoAnnotator:
                 bg_color=color,
                 thickness=config.FONT_THICKNESS,
                 padding=3,
+            )
+
+        return frame
+
+    def _draw_extra_detections(self, frame: np.ndarray,
+                                detections: List[Detection]) -> np.ndarray:
+        """Draw bounding boxes for bowling balls and sweep boards."""
+        for det in detections:
+            x1, y1, x2, y2 = det.bbox
+            name = det.class_name.lower()
+
+            if "ball" in name:
+                color = config.COLOR_BALL
+                label = f"ball {det.confidence:.0%}"
+            elif "sweep" in name:
+                color = config.COLOR_SWEEP
+                label = f"sweep {det.confidence:.0%}"
+            else:
+                continue
+
+            # Draw bounding box (thinner for non-pin objects)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
+
+            # Draw label with background
+            frame = draw_text_with_background(
+                frame, label, (x1, y1 - 5),
+                font_scale=config.FONT_SCALE * 0.8,
+                color=config.COLOR_HUD_TEXT,
+                bg_color=color,
+                thickness=1,
+                padding=2,
             )
 
         return frame
@@ -147,6 +179,14 @@ class VideoAnnotator:
                      config.COLOR_HUD_TEXT, 1, cv2.LINE_AA)
         text_y += line_height
 
+        # Pins Detected
+        if pin_counts is not None:
+            total_pins = pin_counts.get("standing", 0)
+            cv2.putText(frame, f"Pins Detected: {total_pins}",
+                         (text_x, text_y), self.font, 0.45,
+                         config.COLOR_HUD_TEXT, 1, cv2.LINE_AA)
+            text_y += line_height
+
         # Throw event indicator
         if throw_info and throw_info.get("throw_detected"):
             cv2.putText(frame, f"THROW! -{throw_info['pins_knocked']} pins",
@@ -173,7 +213,7 @@ class VideoAnnotator:
         return frame
 
     def _draw_pin_layout(self, frame: np.ndarray,
-                          pin_states: List[PinState]) -> np.ndarray:
+                          pin_counts: Dict) -> np.ndarray:
         """Draw a mini 10-pin triangle diagram showing pin states.
 
         Standard 10-pin layout (viewed from above / front):
@@ -215,10 +255,7 @@ class VideoAnnotator:
         cv2.putText(frame, "PIN LAYOUT", (layout_x + 5, layout_y + 15),
                      self.font, 0.35, config.COLOR_HUD_ACCENT, 1, cv2.LINE_AA)
 
-        # Determine which pins are standing vs fallen
-        # For now, use number of standing/fallen as approximation
-        standing_count = sum(1 for ps in pin_states if ps.state == STANDING)
-        fallen_count = sum(1 for ps in pin_states if ps.state == FALLEN)
+        standing_count = pin_counts.get(STANDING, 0)
 
         center_x = layout_x + bg_w // 2
         center_y = layout_y + bg_h // 2 + 10

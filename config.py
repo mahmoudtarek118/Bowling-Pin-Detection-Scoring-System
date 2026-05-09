@@ -23,17 +23,13 @@ ANNOTATED_VIDEO_DIR = OUTPUT_DIR / "annotated_videos"
 
 # ── Dataset Configuration ────────────────────────────────────
 DATASET_YAML = DATASET_DIR / "data.yaml"
-CLASS_NAMES = ["pin"]
+CLASS_NAMES = ["bowling-ball", "bowling-pins", "sweep board"]
 NUM_CLASSES = len(CLASS_NAMES)
 
-# Class index for the single "pin" class
-PIN_CLASS = 0
-
-# NOTE: Standing vs. fallen is determined by pin_classifier.py
-# heuristics (aspect ratio + temporal smoothing), not by model class.
-# These constants are kept for reference by the classifier.
-STANDING_PIN_CLASS = None  # Not a model class — resolved by heuristics
-FALLEN_PIN_CLASS = None    # Not a model class — resolved by heuristics
+# Class indices (must match model/data.yaml ordering)
+BALL_CLASS = 0       # bowling-ball
+PIN_CLASS = 1        # bowling-pins (standing pins only)
+SWEEP_CLASS = 2      # sweep board
 
 # Train / Val / Test split ratios
 TRAIN_SPLIT = 0.70
@@ -60,13 +56,6 @@ IOU_THRESHOLD = 0.45
 
 # Maximum detections per frame (10 pins + some margin)
 MAX_DETECTIONS = 20
-
-# ── Pin Classification Heuristics ─────────────────────────────
-# Aspect ratio (height / width) thresholds for heuristic classification
-# Standing pins are tall & narrow → high aspect ratio
-# Fallen  pins are wide & short  → low  aspect ratio
-STANDING_MIN_ASPECT_RATIO = 1.5   # height/width >= 1.5 → likely standing
-FALLEN_MAX_ASPECT_RATIO = 1.2    # height/width <= 1.2 → likely fallen
 
 # Number of consecutive frames a pin must maintain state before confirmed
 STATE_STABILITY_FRAMES = 3
@@ -98,9 +87,9 @@ OUTPUT_VIDEO_CODEC = "mp4v"   # FourCC codec (mp4v, XVID, avc1)
 OUTPUT_VIDEO_FPS = 30.0       # Fallback FPS if source FPS unavailable
 
 # ── Annotation Colors (BGR for OpenCV) ────────────────────────
-COLOR_STANDING = (0, 255, 0)      # Green
-COLOR_FALLEN = (0, 0, 255)        # Red
-COLOR_UNKNOWN = (0, 255, 255)     # Yellow
+COLOR_STANDING = (0, 255, 0)      # Green — standing pins
+COLOR_BALL = (0, 165, 255)        # Orange — bowling ball
+COLOR_SWEEP = (255, 200, 0)       # Cyan — sweep board
 COLOR_HUD_BG = (20, 20, 20)      # Dark gray
 COLOR_HUD_TEXT = (255, 255, 255)  # White
 COLOR_HUD_ACCENT = (0, 200, 255) # Orange-ish
